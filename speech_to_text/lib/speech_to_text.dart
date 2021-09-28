@@ -78,8 +78,21 @@ class SpeechToText {
   static const String notifyErrorMethod = 'notifyError';
   static const String notifyStatusMethod = 'notifyStatus';
   static const String soundLevelChangeMethod = 'soundLevelChange';
-  static const String notListeningStatus = 'notListening';
   static const String listeningStatus = 'listening';
+  static const String notListeningStatus = 'notListening';
+  static const String doneStatus = 'done';
+
+  /// This one is kind of a faux status, it's used internally
+  /// to tell the status notifier that the final result has been seen
+  /// since the status notifier wants to tell the world that it is 'done'
+  /// only when both the final result and the done from the underlying platform
+  /// has been seen.
+  static const String _finalStatus = 'final';
+
+  /// Sent when speech recognition completes with no results having been seen
+  /// This allows the done status to be sent from the plugin to clients
+  /// even without a final speech result.
+  static const String _doneNoResultStatus = 'doneNoResult';
   static const _defaultFinalTimeout = Duration(milliseconds: 2000);
   static const _minFinalTimeout = Duration(milliseconds: 50);
 
@@ -95,6 +108,7 @@ class SpeechToText {
   bool _cancelOnError = false;
   bool _partialResults = false;
   bool _notifiedFinal = false;
+  bool _notifiedDone = false;
   int _listenStartedAt = 0;
   int _lastSpeechEventAt = 0;
   Duration? _pauseFor;
@@ -186,11 +200,17 @@ class SpeechToText {
   ///
   /// [onError] is an optional listener for errors like
   /// timeout, or failure of the device speech recognition.
-  /// [onStatus] is an optional listener for status changes from
-  /// listening to not listening.
-  /// [debugLogging] controls whether there is detailed logging from the underlying
-  /// plugins. It is off by default, usually only useful for troubleshooting issues
-  /// with a paritcular OS version or device, fairly verbose
+  /// [onStatus] is an optional listener for status changes. There are three
+  /// possible status values:
+  /// - 'listening' when speech recognition begins after calling the [listen]
+  /// method;
+  /// - 'notListening' when speech recognition is no longer listening to the
+  /// microphone after a timeout, [cancel] or [stop] call;
+  /// - 'done' when all results have been delivered.
+  /// [debugLogging] controls whether there is detailed logging from the
+  /// underlying platform code. It is off by default, usually only useful
+  /// for troubleshooting issueswith a paritcular OS version or device,
+  /// fairly verbose
   /// [finalTimeout] a duration to wait for a final result from the device
   /// speech recognition service. If no final result is received within this
   /// time the last partial result is returned as final. This defaults to
@@ -341,6 +361,7 @@ class SpeechToText {
     _cancelOnError = cancelOnError;
     _recognized = false;
     _notifiedFinal = false;
+    _notifiedDone = false;
     _resultListener = onResult;
     _soundLevelChange = onSoundLevelChange;
     _partialResults = partialResults;
@@ -499,6 +520,9 @@ class SpeechToText {
     if (null != _resultListener) {
       _resultListener!(speechResult);
     }
+    if (_notifiedFinal) {
+      _onNotifyStatus(_finalStatus);
+    }
   }
 
   Future<void> _onNotifyError(String errorJson) async {
@@ -518,6 +542,23 @@ class SpeechToText {
 
   void _onNotifyStatus(String status) {
     // print('status $status');
+    switch (status) {
+      case doneStatus:
+        _notifiedDone = true;
+        if (!_notifiedFinal) return;
+        break;
+      case _finalStatus:
+        if (!_notifiedDone) return;
+
+        /// the [_finalStatus] is just to indicate that it can send the
+        /// [doneStatus] if [_notifiedDone] has already happened.
+        status = doneStatus;
+        break;
+      case _doneNoResultStatus:
+        _notifiedDone = true;
+        status = doneStatus;
+        break;
+    }
     _lastStatus = status;
     _listening = status == listeningStatus;
     // print(status);

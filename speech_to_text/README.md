@@ -1,6 +1,6 @@
 # speech_to_text
 
-[![pub package](https://img.shields.io/badge/pub-v4.2.0-blue)](https://pub.dartlang.org/packages/speech_to_text) [![build status](https://github.com/csdcorp/speech_to_text/workflows/build/badge.svg)](https://github.com/csdcorp/speech_to_text/actions?query=workflow%3Abuild) [![codecov](https://codecov.io/gh/csdcorp/speech_to_text/branch/main/graph/badge.svg?token=4LV3HESMS4)](undefined)
+[![pub package](https://img.shields.io/badge/pub-v5.1.1-blue)](https://pub.dartlang.org/packages/speech_to_text) [![build status](https://github.com/csdcorp/speech_to_text/workflows/build/badge.svg)](https://github.com/csdcorp/speech_to_text/actions?query=workflow%3Abuild) [![codecov](https://codecov.io/gh/csdcorp/speech_to_text/branch/main/graph/badge.svg?token=4LV3HESMS4)](undefined)
 
 A library that exposes device specific speech recognition capability.
 
@@ -11,12 +11,13 @@ conversion or always on listening.
 
 ## Recent Updates
 
+5.0.0 improves audio handling on iOS thanks to work by @deJong-IT. It also adds a new `done` status sent after
+the listening session is complete and the plugin has finished with the audio subsystem on the device. This 
+should help coordinate multiple audio plugins.
+
 The 4.2.0 version is significantly faster starting to listen on iOS (~500 ms) and makes null safety the default release. 
 
 The 4.0.0 version adds null safety support thanks to the fabulous work of @kaladron. Support for web is also included though it is not yet well tested. 
-
-The 3.0.0 version uses the newer style of plugin development based on a common platform interface package. 
-This will make it easier to support web and other platforms. 
 
 *Note*: Feedback from any test devices is welcome. 
 
@@ -24,6 +25,7 @@ This will make it easier to support web and other platforms.
 
 To recognize text from the microphone import the package and call the plugin, like so: 
 
+### Minimal 
 ```dart
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
@@ -37,6 +39,122 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
     }
     // some time later...
     speech.stop()
+```
+
+### Complete Flutter example
+```dart
+import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Flutter Demo',
+      home: MyHomePage(),
+    );
+  }
+}
+
+class MyHomePage extends StatefulWidget {
+  MyHomePage({Key? key}) : super(key: key);
+
+  @override
+  _MyHomePageState createState() => _MyHomePageState();
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  SpeechToText _speechToText = SpeechToText();
+  bool _speechEnabled = false;
+  String _lastWords = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _initSpeech();
+  }
+
+  /// This has to happen only once per app
+  void _initSpeech() async {
+    _speechEnabled = await _speechToText.initialize();
+    setState(() {});
+  }
+
+  /// Each time to start a speech recognition session
+  void _startListening() async {
+    await _speechToText.listen(onResult: _onSpeechResult);
+    setState(() {});
+  }
+
+  /// Manually stop the active speech recognition session
+  /// Note that there are also timeouts that each platform enforces
+  /// and the SpeechToText plugin supports setting timeouts on the
+  /// listen method.
+  void _stopListening() async {
+    await _speechToText.stop();
+    setState(() {});
+  }
+
+  /// This is the callback that the SpeechToText plugin calls when
+  /// the platform returns recognized words.
+  void _onSpeechResult(SpeechRecognitionResult result) {
+    setState(() {
+      _lastWords = result.recognizedWords;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Speech Demo'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Container(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Recognized words:',
+                style: TextStyle(fontSize: 20.0),
+              ),
+            ),
+            Expanded(
+              child: Container(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  // If listening is active show the recognized words
+                  _speechToText.isListening
+                      ? '$_lastWords'
+                      // If listening isn't active but could be tell the user
+                      // how to start it, otherwise indicate that speech
+                      // recognition is not yet ready or not supported on
+                      // the target device
+                      : _speechEnabled
+                          ? 'Tap the microphone to start listening...'
+                          : 'Speech not available',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed:
+            // If not yet listening for speech start, otherwise stop
+            _speechToText.isNotListening ? _startListening : _stopListening,
+        tooltip: 'Listen',
+        child: Icon(_speechToText.isNotListening ? Icons.mic_off : Icons.mic),
+      ),
+    );
+  }
+}
 ```
 
 ### Initialize once
@@ -137,6 +255,14 @@ There are at least two separate use cases for continuous speech recognition:
 Voice assistant style interaction is possibly better handled by integrating with the existing assistant capability on 
 the device rather than building out a separate capability. Text dictation is available through the keyboard for standard
 text input controls though there are other uses of dictation that are not currently well supported. 
+
+### Browser support for speech recognition 
+Web browsers vary in their level of support for speech recognition. This 
+[issue](https://github.com/csdcorp/speech_to_text/issues/239) has some details. 
+The best lists I've seen are https://caniuse.com/speech-recognition and 
+https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition. In particular 
+in issue #239 it was reported that Brave Browser and Firefox for Linux do not 
+support speech recognition. 
 
 ### Speech recognition from recorded audio 
 There have been a number of questions about whether speech can be recognized from recorded audio. The short answer is 

@@ -12,6 +12,9 @@ import 'package:speech_to_text_platform_interface/speech_to_text_platform_interf
 /// SpeechRecognition support.
 class SpeechToTextPlugin extends SpeechToTextPlatform {
   html.SpeechRecognition? _webSpeech;
+  static const _doneNoResult = 'doneNoResult';
+  bool _resultSent = false;
+  bool _doneSent = false;
 
   /// Registers this class as the default instance of [UrlLauncherPlatform].
   static void registerWith(Registrar registrar) {
@@ -28,7 +31,7 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   /// denied them permission in the past.
   @override
   Future<bool> hasPermission() async {
-    return true;
+    return html.SpeechRecognition.supported;
   }
 
   /// Initialize speech recognition services, returns true if
@@ -45,6 +48,11 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   @override
   Future<bool> initialize(
       {debugLogging = false, List<SpeechConfigOption>? options}) async {
+    if (!html.SpeechRecognition.supported) {
+      var error = SpeechRecognitionError('not supported', true);
+      onError?.call(jsonEncode(error.toJson()));
+      return false;
+    }
     var initialized = false;
     try {
       _webSpeech = html.SpeechRecognition();
@@ -54,7 +62,9 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
         _webSpeech!.onSpeechStart
             .listen((startEvent) => _onSpeechStart(startEvent));
         _webSpeech!.onEnd.listen((endEvent) => _onSpeechEnd(endEvent));
-        _webSpeech!.onSpeechEnd.listen((endEvent) => _onSpeechEnd(endEvent));
+        // _webSpeech!.onSpeechEnd.listen((endEvent) => _onSpeechEnd(endEvent));
+        _webSpeech!.onNoMatch
+            .listen((noMatchEvent) => _onNoMatch(noMatchEvent));
         initialized = true;
       }
     } finally {
@@ -137,6 +147,8 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
     if (null != localeId) {
       _webSpeech!.lang = localeId;
     }
+    _doneSent = false;
+    _resultSent = false;
     _webSpeech!.start();
     return true;
   }
@@ -155,43 +167,51 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   }
 
   void _onError(html.SpeechRecognitionError event) {
-    if (null != onError && null != event.error) {
+    if (null != event.error) {
       var error = SpeechRecognitionError(event.error!, false);
-      onError!(jsonEncode(error.toJson()));
+      onError?.call(jsonEncode(error.toJson()));
+      _sendDone(_doneNoResult);
     }
   }
 
   void _onSpeechStart(html.Event event) {
-    if (null != onStatus) {
-      onStatus!('listening');
-    }
+    onStatus?.call('listening');
   }
 
   void _onSpeechEnd(html.Event event) {
-    if (null != onStatus) {
-      onStatus!('not listening');
-    }
+    onStatus?.call('notListening');
+    _sendDone(_resultSent ? 'done' : _doneNoResult);
+  }
+
+  void _onNoMatch(html.Event event) {
+    _sendDone(_doneNoResult);
+  }
+
+  void _sendDone(String status) {
+    if (_doneSent) return;
+    onStatus?.call(status);
+    _doneSent = true;
   }
 
   void _onResult(html.SpeechRecognitionEvent event) {
     var isFinal = false;
     var recogResults = <SpeechRecognitionWords>[];
     var results = event.results;
-    if (null != results) {
-      for (var result in results) {
-        if (null == result.length) continue;
-        for (var altIndex = 0; altIndex < result.length!; ++altIndex) {
-          var alt = result.item(altIndex);
-          if (null != alt.transcript && null != alt.confidence) {
-            recogResults.add(SpeechRecognitionWords(
-                alt.transcript!, alt.confidence!.toDouble()));
-          }
+    if (null == results) return;
+    for (var recognitionResult in results) {
+      if (null == recognitionResult.length || recognitionResult.length == 0) {
+        continue;
+      }
+      for (var altIndex = 0; altIndex < recognitionResult.length!; ++altIndex) {
+        var alt = recognitionResult.item(altIndex);
+        if (null != alt.transcript && null != alt.confidence) {
+          recogResults.add(SpeechRecognitionWords(
+              alt.transcript!, alt.confidence!.toDouble()));
         }
       }
     }
     var result = SpeechRecognitionResult(recogResults, isFinal);
-    if (null != onTextRecognition) {
-      onTextRecognition!(jsonEncode(result.toJson()));
-    }
+    onTextRecognition?.call(jsonEncode(result.toJson()));
+    _resultSent = true;
   }
 }

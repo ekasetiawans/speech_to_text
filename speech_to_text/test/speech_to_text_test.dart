@@ -298,6 +298,35 @@ void main() {
       expect(listener.speechStatus, 1);
       expect(listener.statuses.contains(SpeechToText.listeningStatus), true);
     });
+    test('done not sent if no final result', () async {
+      await speech.initialize(
+          onError: listener.onSpeechError, onStatus: listener.onSpeechStatus);
+      testPlatform.onStatus!(SpeechToText.listeningStatus);
+      testPlatform.onStatus!(SpeechToText.notListeningStatus);
+      testPlatform.onStatus!(SpeechToText.doneStatus);
+      expect(listener.speechStatus, 2);
+      expect(listener.statuses.contains(SpeechToText.doneStatus), isFalse);
+    });
+    test('done sent if final result seen before done', () async {
+      await speech.initialize(onStatus: listener.onSpeechStatus);
+      await speech.listen();
+      testPlatform.notifyFinalWords();
+      testPlatform.onStatus!(SpeechToText.doneStatus);
+      expect(listener.statuses.contains(SpeechToText.doneStatus), isTrue);
+    });
+    test('done sent if final result seen after done', () async {
+      await speech.initialize(onStatus: listener.onSpeechStatus);
+      await speech.listen();
+      testPlatform.onStatus!(SpeechToText.doneStatus);
+      testPlatform.notifyFinalWords();
+      expect(listener.statuses.contains(SpeechToText.doneStatus), isTrue);
+    });
+    test('done sent with no results on doneNoResult', () async {
+      await speech.initialize(onStatus: listener.onSpeechStatus);
+      await speech.listen();
+      testPlatform.onStatus!('doneNoResult');
+      expect(listener.statuses.contains(SpeechToText.doneStatus), isTrue);
+    });
   });
 
   group('soundLevel callback', () {
@@ -359,14 +388,14 @@ void main() {
       expect(listener.speechErrors, 1);
       expect(listener.errors.first.permanent, isTrue);
     });
-    test('continues listening on transient', () async {
+    test('listening unaffected by transient', () async {
       await speech.initialize(onError: listener.onSpeechError);
       await speech.listen();
       testPlatform.onStatus!(SpeechToText.listeningStatus);
       testPlatform.onError!(TestSpeechChannelHandler.transientErrorJson);
       expect(speech.isListening, isTrue);
     });
-    test('continues listening on permanent if cancel not explicitly requested',
+    test('listening unaffected by permanent if cancel not explicitly requested',
         () async {
       await speech.initialize(onError: listener.onSpeechError);
       await speech.listen();
